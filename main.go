@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 
@@ -136,6 +137,10 @@ func isBadEncryptError(err error) bool {
 // this function assumes evt.Type is EventMessage
 // return value is the body of the message to send back, if any
 func getMsgResponse(client *mautrix.Client, evt *event.Event) string {
+	// only respond to messages that were sent in the last five minutes
+	if time.Unix(evt.Timestamp / 1000, evt.Timestamp % 1000).Before(time.Now().Add(time.Minute * -5)) {
+		return ""
+	}
 	content := evt.Content.AsMessage()
 	if content.MsgType != event.MsgText {
 		return ""
