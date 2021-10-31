@@ -16,7 +16,7 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-var mscRegex *regexp.Regexp
+var MSC_REGEX *regexp.Regexp = regexp.MustCompile("\\b(?:MSC|msc)(\\d+)\\b")
 
 func main() {
 	store := NewMSCBotStore()
@@ -46,12 +46,6 @@ func main() {
 	err = olmMachine.Load()
 	if err != nil {
 		log.Fatalf("couldn't load olm machine: %v", err)
-	}
-
-	mscRegex, err = regexp.Compile("\\b(?:MSC|msc)(\\d+)\\b")
-	if err != nil {
-		// should never happen
-		log.Fatalf("couldn't compile regex: %v", err)
 	}
 
 	syncer := client.Syncer.(*mautrix.DefaultSyncer)
@@ -154,7 +148,7 @@ func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEven
 }
 
 func getMSCs(body string) (mscs []string) {
-	matches := mscRegex.FindAllStringSubmatch(body, -1)
+	matches := MSC_REGEX.FindAllStringSubmatch(body, -1)
 	for _, match := range matches {
 		mscs = append(mscs, match[1])
 	}
