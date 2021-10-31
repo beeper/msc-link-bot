@@ -17,3 +17,5 @@ export ACCESS_TOKEN=<super_secret_access_token>
 # crypto keys will be stored in ./crypto.db
 ./msc-link-bot
 ```
+
+Those looking to use docker should see [contrib/README.md](contrib/README.md)
