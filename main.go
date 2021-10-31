@@ -61,14 +61,11 @@ func main() {
 	})
 	syncer.OnEvent(store.UpdateState)
 	syncer.OnEventType(event.EventMessage, func(_ mautrix.EventSource, evt *event.Event) {
-		ret := getMsgResponse(client, evt)
-		if ret == "" {
+		retContent := getMsgResponse(client, evt)
+		if retContent == nil {
 			return
 		}
-		resp, err := client.SendMessageEvent(evt.RoomID, event.EventMessage, event.MessageEventContent{
-			MsgType: event.MsgText,
-			Body:    ret,
-		})
+		resp, err := client.SendMessageEvent(evt.RoomID, event.EventMessage, retContent)
 		if err != nil {
 			log.Errorf("couldn't send event: %v", err)
 			return
@@ -84,15 +81,11 @@ func main() {
 		if evt.Type != event.EventMessage {
 			return
 		}
-		ret := getMsgResponse(client, evt)
-		if ret == "" {
+		retContent := getMsgResponse(client, evt)
+		if retContent == nil {
 			return
 		}
-		content := event.MessageEventContent{
-			MsgType: event.MsgText,
-			Body:    ret,
-		}
-		encrypted, err := olmMachine.EncryptMegolmEvent(evt.RoomID, evt.Type, content)
+		encrypted, err := olmMachine.EncryptMegolmEvent(evt.RoomID, evt.Type, retContent)
 		if err != nil {
 			if isBadEncryptError(err) {
 				log.Errorf("couldn't encrypt event: %v", err)
@@ -104,7 +97,7 @@ func main() {
 				log.Errorf("couldn't share group session: %v", err)
 				return
 			}
-			encrypted, err = olmMachine.EncryptMegolmEvent(evt.RoomID, evt.Type, content)
+			encrypted, err = olmMachine.EncryptMegolmEvent(evt.RoomID, evt.Type, retContent)
 			if err != nil {
 				log.Errorf("couldn't encrypt event(2): %v", err)
 				return
@@ -135,26 +128,29 @@ func isBadEncryptError(err error) bool {
 }
 
 // this function assumes evt.Type is EventMessage
-// return value is the body of the message to send back, if any
-func getMsgResponse(client *mautrix.Client, evt *event.Event) string {
+// return value is the message content to send back, if any
+func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEventContent {
 	// only respond to messages that were sent in the last five minutes
 	if time.Unix(evt.Timestamp / 1000, evt.Timestamp % 1000).Before(time.Now().Add(time.Minute * -5)) {
-		return ""
+		return nil
 	}
 	content := evt.Content.AsMessage()
 	if content.MsgType != event.MsgText {
-		return ""
+		return nil
 	}
 	mscs := getMSCs(content.Body)
-	ret := ""
+	retBody := ""
 	for i, msc := range mscs {
 		log.Infof("MSC: %v %v\n", evt.ID, msc)
 		if i > 0 {
-			ret += "\n"
+			retBody += "\n"
 		}
-		ret += fmt.Sprintf("https://github.com/matrix-org/matrix-doc/pull/%v", msc)
+		retBody += fmt.Sprintf("https://github.com/matrix-org/matrix-doc/pull/%v", msc)
 	}
-	return ret
+	return &event.MessageEventContent{
+		MsgType: event.MsgText,
+		Body:    retBody,
+	}
 }
 
 func getMSCs(body string) (mscs []string) {
