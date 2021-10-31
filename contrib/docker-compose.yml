@@ -1,0 +1,18 @@
+version: "3"
+
+services:
+  msclinkbot:
+    build: .
+    environment:
+      HOMESERVER: https://matrix.example.org
+      USER_ID: '@msclinkbot:example.org'
+      # these values can be generated with
+      # https://matrix.org/docs/spec/client_server/r0.6.1#post-matrix-client-r0-login
+      DEVICE_ID: 'FWQXHAAVLF'
+      ACCESS_TOKEN: '<super_secret_access_token>'
+    volumes:
+      # needed to retain crypto.db
+      - msclinkbot:/msclinkbot
+
+volumes:
+  msclinkbot:
