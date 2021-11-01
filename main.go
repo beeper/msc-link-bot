@@ -135,7 +135,7 @@ func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEven
 	mscs := getMSCs(content.Body)
 	retBody := ""
 	for i, msc := range mscs {
-		log.Infof("MSC: %v %v\n", evt.ID, msc)
+		log.Infof("MSC: %v/%v %v\n", evt.RoomID, evt.ID, msc)
 		if i > 0 {
 			retBody += "\n"
 		}
