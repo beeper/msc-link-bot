@@ -2,7 +2,9 @@ version: "3"
 
 services:
   msclinkbot:
-    build: .
+    build:
+      context: ..
+      dockerfile: contrib/Dockerfile
     environment:
       HOMESERVER: https://matrix.example.org
       USER_ID: '@msclinkbot:example.org'
