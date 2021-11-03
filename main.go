@@ -141,6 +141,9 @@ func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEven
 		}
 		retBody += fmt.Sprintf("https://github.com/matrix-org/matrix-doc/pull/%v", msc)
 	}
+	if retBody == "" {
+		return nil
+	}
 	return &event.MessageEventContent{
 		MsgType: event.MsgNotice,
 		Body:    retBody,
