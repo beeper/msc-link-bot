@@ -2,9 +2,13 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -135,11 +139,11 @@ func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEven
 	mscs := getMSCs(content.Body)
 	retBody := ""
 	for i, msc := range mscs {
-		log.Infof("MSC: %v/%v %v\n", evt.RoomID, evt.ID, msc)
+		log.Infof("MSC: %v/%v %d\n", evt.RoomID, evt.ID, msc)
 		if i > 0 {
 			retBody += "\n"
 		}
-		retBody += fmt.Sprintf("https://github.com/matrix-org/matrix-doc/pull/%v", msc)
+		retBody += getMSCResponse(msc)
 	}
 	if retBody == "" {
 		return nil
@@ -150,12 +154,44 @@ func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEven
 	}
 }
 
-func getMSCs(body string) (mscs []string) {
+func getMSCs(body string) (mscs []uint) {
 	matches := MSC_REGEX.FindAllStringSubmatch(body, -1)
 	for _, match := range matches {
-		mscs = append(mscs, match[1])
+		// error can never happen because of %d in regex
+		msc, _ := strconv.Atoi(match[1])
+		mscs = append(mscs, uint(msc))
 	}
 	return mscs
+}
+
+func getMSCResponse(msc uint) string {
+	mscPR := fmt.Sprintf("https://github.com/matrix-org/matrix-doc/pull/%d", msc)
+	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/matrix-org/matrix-doc/pulls/%d", msc))
+	if err != nil {
+		log.Warnf("couldn't get MSC %d details: %s", msc, err)
+		return mscPR
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		lg := fmt.Sprintf("received non-200 status code %d while fetching MSC %d details", resp.StatusCode, msc)
+		byts, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Warn(lg)
+		} else {
+			log.Warnf("%s: %s", lg, string(byts))
+		}
+		return mscPR
+	}
+	decoder := json.NewDecoder(resp.Body)
+	var body struct {
+		Title string `json:"title"` // only param we care about
+	}
+	err = decoder.Decode(&body)
+	if err != nil {
+		log.Warnf("couldn't decode PR details json: %s", err)
+		return mscPR
+	}
+	return fmt.Sprintf("%s %s", body.Title, mscPR)
 }
 
 func mkClient(store mautrix.Storer) *mautrix.Client {
