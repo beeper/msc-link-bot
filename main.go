@@ -9,7 +9,6 @@ import (
 	"os"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -156,17 +155,12 @@ func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEven
 }
 
 func getMSCs(body string) (mscs []uint) {
-	lines := strings.Split(body, "\n")
-	for _, line := range lines {
-		if len(line) == 0 || line[0] == '>' {
-			continue
-		}
-		matches := MSC_REGEX.FindAllStringSubmatch(line, -1)
-		for _, match := range matches {
-			// error can never happen because of %d in regex
-			msc, _ := strconv.Atoi(match[1])
-			mscs = append(mscs, uint(msc))
-		}
+	bodyNoReplies := event.TrimReplyFallbackText(body)
+	matches := MSC_REGEX.FindAllStringSubmatch(bodyNoReplies, -1)
+	for _, match := range matches {
+		// error can never happen because of %d in regex
+		msc, _ := strconv.Atoi(match[1])
+		mscs = append(mscs, uint(msc))
 	}
 	return mscs
 }
