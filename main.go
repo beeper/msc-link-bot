@@ -165,8 +165,8 @@ func getMSCs(body string) (mscs []uint) {
 }
 
 func getMSCResponse(msc uint) string {
-	mscPR := fmt.Sprintf("https://github.com/matrix-org/matrix-doc/pull/%d", msc)
-	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/matrix-org/matrix-doc/pulls/%d", msc))
+	mscPR := fmt.Sprintf("https://github.com/matrix-org/matrix-spec-proposals/pull/%d", msc)
+	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/matrix-org/matrix-spec-proposals/pulls/%d", msc))
 	if err != nil {
 		log.Warnf("couldn't get MSC %d details: %s", msc, err)
 		return mscPR
