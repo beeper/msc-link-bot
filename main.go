@@ -128,7 +128,8 @@ func isBadEncryptError(err error) bool {
 // this function assumes evt.Type is EventMessage
 // return value is the message content to send back, if any
 func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEventContent {
-	// only respond to messages that were sent in the last five minutes
+	// only respond to messages that were sent in the last five minutes so
+	// that during an initial sync we don't respond to old messages
 	if time.Unix(evt.Timestamp / 1000, evt.Timestamp % 1000).Before(time.Now().Add(time.Minute * -5)) {
 		return nil
 	}
