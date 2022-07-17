@@ -23,3 +23,12 @@ func TestCapitalization(t *testing.T) {
 		t.Fail()
 	}
 }
+
+func TestNoRepeats(t *testing.T) {
+	mscs := getMSCs("That msc seems to be the last prerequisite for MSC2677: https://github.com/uhoreg/matrix-doc/blob/aggregations-reactions/proposals/2677-reactions.md#msc2677-annotations-and-reactions")
+	if len(mscs) != 1 {
+		t.Fail()
+	} else if mscs[0] != 2677 {
+		t.Fail()
+	}
+}

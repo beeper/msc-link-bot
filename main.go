@@ -158,9 +158,16 @@ func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEven
 func getMSCs(body string) (mscs []uint) {
 	bodyNoReplies := event.TrimReplyFallbackText(body)
 	matches := MSC_REGEX.FindAllStringSubmatch(bodyNoReplies, -1)
+	mscSet := make(map[int]struct{})
 	for _, match := range matches {
 		// error can never happen because of %d in regex
 		msc, _ := strconv.Atoi(match[1])
+		_, exists := mscSet[msc]
+		if exists {
+			// don't add the same MSC twice
+			continue
+		}
+		mscSet[msc] = struct{}{}
 		mscs = append(mscs, uint(msc))
 	}
 	return mscs
