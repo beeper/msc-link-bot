@@ -14,10 +14,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	log "github.com/sirupsen/logrus"
+	"maunium.net/go/maulogger/v2"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/crypto"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
+	"maunium.net/go/mautrix/util/dbutil"
 )
 
 var MSC_REGEX *regexp.Regexp = regexp.MustCompile("\\b(?:MSC|msc)(\\d+)\\b")
@@ -32,16 +34,20 @@ func main() {
 	}
 	defer cryptoDB.Close()
 
+	db, err := dbutil.NewWithDB(cryptoDB, "sqlite3")
+	if err != nil {
+		log.Fatalf("couldn't create crypto db: %v", err)
+	}
+
 	cryptoLogger := cryptoLogger{}
 	cryptoStore := crypto.NewSQLCryptoStore(
-		cryptoDB,
-		"sqlite3",
+		db,
+		dbutil.MauLogger(maulogger.DefaultLogger),
 		fmt.Sprintf("%s/%s", client.UserID, client.DeviceID),
 		client.DeviceID,
 		[]byte("xyz.hnitbjorg.msc_link_bot"),
-		cryptoLogger,
 	)
-	err = cryptoStore.CreateTables()
+	err = cryptoStore.Upgrade()
 	if err != nil {
 		log.Fatalf("couldn't create crypto store tables: %v", err)
 	}
