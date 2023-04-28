@@ -9,10 +9,8 @@ encrypted rooms with the help of <https://maunium.net/go/mautrix>.
 # will create ./msc-link-bot
 make
 
-export HOMESERVER=https://matrix.example.org
-export USER_ID=@msclinkbot:example.org
-export DEVICE_ID=FWQXHAAVLA
-export ACCESS_TOKEN=<super_secret_access_token>
+cp example-config.yaml config.yaml
+# edit your configuration to fit your needs
 
 # crypto keys will be stored in ./crypto.db
 ./msc-link-bot

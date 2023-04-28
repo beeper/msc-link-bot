@@ -1,8 +1,8 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -12,131 +12,98 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"gopkg.in/yaml.v3"
 
-	log "github.com/sirupsen/logrus"
-	"maunium.net/go/maulogger/v2"
+	"github.com/rs/zerolog"
+	globallog "github.com/rs/zerolog/log"
 	"maunium.net/go/mautrix"
-	"maunium.net/go/mautrix/crypto"
+	"maunium.net/go/mautrix/crypto/cryptohelper"
 	"maunium.net/go/mautrix/event"
-	"maunium.net/go/mautrix/id"
 	"maunium.net/go/mautrix/util/dbutil"
 )
 
 var MSC_REGEX *regexp.Regexp = regexp.MustCompile("\\b(?:MSC|msc)(\\d+)\\b")
 
 func main() {
-	store := NewMSCBotStore()
-	client := mkClient(store)
+	// Arg parsing
+	configPath := flag.String("config", "./config.yaml", "config file location")
+	flag.Parse()
 
-	cryptoDB, err := sql.Open("sqlite3", "crypto.db")
+	// Load configuration
+	globallog.Info().Str("config_path", *configPath).Msg("Reading config")
+	configYaml, err := os.ReadFile(*configPath)
 	if err != nil {
-		log.Fatalf("couldn't open crypto db: %v", err)
-	}
-	defer cryptoDB.Close()
-
-	db, err := dbutil.NewWithDB(cryptoDB, "sqlite3")
-	if err != nil {
-		log.Fatalf("couldn't create crypto db: %v", err)
+		globallog.Fatal().Err(err).Str("config_path", *configPath).Msg("Failed reading the config")
 	}
 
-	cryptoLogger := cryptoLogger{}
-	cryptoStore := crypto.NewSQLCryptoStore(
-		db,
-		dbutil.MauLogger(maulogger.DefaultLogger),
-		fmt.Sprintf("%s/%s", client.UserID, client.DeviceID),
-		client.DeviceID,
-		[]byte("xyz.hnitbjorg.msc_link_bot"),
-	)
-	err = cryptoStore.Upgrade()
+	var config Configuration
+	err = yaml.Unmarshal(configYaml, &config)
 	if err != nil {
-		log.Fatalf("couldn't create crypto store tables: %v", err)
+		globallog.Fatal().Err(err).Msg("Failed to parse configuration YAML")
 	}
 
-	olmMachine := crypto.NewOlmMachine(client, cryptoLogger, cryptoStore, store)
-	err = olmMachine.Load()
+	// Setup logging
+	log, err := config.Logging.Compile()
 	if err != nil {
-		log.Fatalf("couldn't load olm machine: %v", err)
+		globallog.Fatal().Err(err).Msg("Failed to compile logging configuration")
 	}
+
+	// Open the database
+	db, err := dbutil.NewFromConfig("msclinkbot", config.Database, dbutil.ZeroLogger(*log))
+	if err != nil {
+		log.Fatal().Err(err).Msg("couldn't open database")
+	}
+
+	// Log In
+	client, err := mautrix.NewClient(config.Homeserver, "", "")
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create matrix client")
+	}
+	client.Log = *log
+	cryptoHelper, err := cryptohelper.NewCryptoHelper(client, []byte("xyz.hnitbjorg.msc_link_bot"), db)
+	password, err := config.GetPassword(log)
+	if err != nil {
+		log.Fatal().Err(err).Str("password_file", config.PasswordFile).Msg("Could not read password from file")
+	}
+	cryptoHelper.LoginAs = &mautrix.ReqLogin{
+		Type:       mautrix.AuthTypePassword,
+		Identifier: mautrix.UserIdentifier{Type: mautrix.IdentifierTypeUser, User: config.Username.String()},
+		Password:   password,
+	}
+	cryptoHelper.DBAccountID = config.Username.String()
+
+	err = cryptoHelper.Init()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to initialize crypto helper")
+	}
+	client.Crypto = cryptoHelper
 
 	syncer := client.Syncer.(*mautrix.DefaultSyncer)
-	syncer.OnSync(olmMachine.ProcessSyncResponse)
-	syncer.OnEventType(event.StateMember, func(_ mautrix.EventSource, evt *event.Event) {
-		olmMachine.HandleMemberEvent(evt)
-	})
-	syncer.OnEvent(store.UpdateState)
 	syncer.OnEventType(event.EventMessage, func(_ mautrix.EventSource, evt *event.Event) {
-		retContent := getMsgResponse(client, evt)
+		retContent := getMsgResponse(log, client, evt)
 		if retContent == nil {
 			return
 		}
 		resp, err := client.SendMessageEvent(evt.RoomID, event.EventMessage, retContent)
 		if err != nil {
-			log.Errorf("couldn't send event: %v", err)
+			log.Err(err).Msg("couldn't send event")
 			return
 		}
-		log.Infof("sent event %v", resp.EventID)
-	})
-	syncer.OnEventType(event.EventEncrypted, func(_ mautrix.EventSource, encEvt *event.Event) {
-		evt, err := olmMachine.DecryptMegolmEvent(encEvt)
-		if err != nil {
-			log.Errorf("couldn't decrypt event %v: %v", encEvt.ID, err)
-			return
-		}
-		if evt.Type != event.EventMessage {
-			return
-		}
-		retContent := getMsgResponse(client, evt)
-		if retContent == nil {
-			return
-		}
-		encrypted, err := olmMachine.EncryptMegolmEvent(evt.RoomID, evt.Type, retContent)
-		if err != nil {
-			if isBadEncryptError(err) {
-				log.Errorf("couldn't encrypt event: %v", err)
-				return
-			}
-			log.Debugf("got %s while trying to encrypt message; sharing group session and trying again...", err)
-			err = olmMachine.ShareGroupSession(evt.RoomID, store.GetRoomMembers(evt.RoomID))
-			if err != nil {
-				log.Errorf("couldn't share group session: %v", err)
-				return
-			}
-			encrypted, err = olmMachine.EncryptMegolmEvent(evt.RoomID, evt.Type, retContent)
-			if err != nil {
-				log.Errorf("couldn't encrypt event(2): %v", err)
-				return
-			}
-		}
-		resp, err := client.SendMessageEvent(evt.RoomID, event.EventEncrypted, encrypted)
-		if err != nil {
-			log.Errorf("couldn't send encrypted event: %v", err)
-			return
-		}
-		log.Infof("sent encrypted event %v", resp.EventID)
-	})
-	syncer.OnEvent(func (_ mautrix.EventSource, evt *event.Event) {
-		err := olmMachine.FlushStore()
-		if err != nil {
-			panic(err)
-		}
+		log.Info().Str("event_id", resp.EventID.String()).Msg("sent event")
 	})
 
 	err = client.Sync()
 	if err != nil {
-		log.Fatalf("error syncing: %v", err)
+		log.Fatal().Err(err).Msg("error syncing")
 	}
-}
-
-func isBadEncryptError(err error) bool {
-	return err != crypto.SessionExpired && err != crypto.SessionNotShared && err != crypto.NoGroupSession
 }
 
 // this function assumes evt.Type is EventMessage
 // return value is the message content to send back, if any
-func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEventContent {
+func getMsgResponse(log *zerolog.Logger, client *mautrix.Client, evt *event.Event) *event.MessageEventContent {
 	// only respond to messages that were sent in the last five minutes so
 	// that during an initial sync we don't respond to old messages
-	if time.Unix(evt.Timestamp / 1000, evt.Timestamp % 1000).Before(time.Now().Add(time.Minute * -5)) {
+	if time.Unix(evt.Timestamp/1000, evt.Timestamp%1000).Before(time.Now().Add(time.Minute * -5)) {
 		return nil
 	}
 	content := evt.Content.AsMessage()
@@ -146,11 +113,15 @@ func getMsgResponse(client *mautrix.Client, evt *event.Event) *event.MessageEven
 	mscs := getMSCs(content.Body)
 	retBody := ""
 	for i, msc := range mscs {
-		log.Infof("MSC: %v/%v %d\n", evt.RoomID, evt.ID, msc)
+		log.Info().
+			Str("room_id", evt.RoomID.String()).
+			Str("event_id", evt.ID.String()).
+			Uint("msc", msc).
+			Msg("found MSC")
 		if i > 0 {
 			retBody += "\n"
 		}
-		retBody += getMSCResponse(msc)
+		retBody += getMSCResponse(log, msc)
 	}
 	if retBody == "" {
 		return nil
@@ -179,22 +150,21 @@ func getMSCs(body string) (mscs []uint) {
 	return mscs
 }
 
-func getMSCResponse(msc uint) string {
+func getMSCResponse(log *zerolog.Logger, msc uint) string {
 	mscPR := fmt.Sprintf("https://github.com/matrix-org/matrix-spec-proposals/pull/%d", msc)
 	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/matrix-org/matrix-spec-proposals/pulls/%d", msc))
 	if err != nil {
-		log.Warnf("couldn't get MSC %d details: %s", msc, err)
+		log.Warn().Err(err).Uint("msc", msc).Msg("couldn't get MSC details")
 		return mscPR
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		lg := fmt.Sprintf("received non-200 status code %d while fetching MSC %d details", resp.StatusCode, msc)
+		log := log.With().Uint("msc", msc).Int("status_code", resp.StatusCode).Logger()
 		byts, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			log.Warn(lg)
-		} else {
-			log.Warnf("%s: %s", lg, string(byts))
+		if err == nil {
+			log = log.With().Str("body", string(byts)).Logger()
 		}
+		log.Warn().Msg("received non-200 status code while fetching MSC details")
 		return mscPR
 	}
 	decoder := json.NewDecoder(resp.Body)
@@ -203,39 +173,8 @@ func getMSCResponse(msc uint) string {
 	}
 	err = decoder.Decode(&body)
 	if err != nil {
-		log.Warnf("couldn't decode PR details json: %s", err)
+		log.Warn().Err(err).Msg("couldn't decode PR details json")
 		return mscPR
 	}
 	return fmt.Sprintf("%s %s", body.Title, mscPR)
-}
-
-func mkClient(store mautrix.Storer) *mautrix.Client {
-	homeserver := os.Getenv("HOMESERVER")
-	if homeserver == "" {
-		log.Fatal("required envvar HOMESERVER not set")
-	}
-
-	userID := os.Getenv("USER_ID")
-	if userID == "" {
-		log.Fatal("required envvar USER_ID not set")
-	}
-
-	deviceID := os.Getenv("DEVICE_ID")
-	if deviceID == "" {
-		log.Fatal("required envvar DEVICE_ID not set")
-	}
-
-	accessToken := os.Getenv("ACCESS_TOKEN")
-	if accessToken == "" {
-		log.Fatal("required envvar ACCESS_TOKEN not set")
-	}
-
-	client, err := mautrix.NewClient(homeserver, id.UserID(userID), accessToken)
-	if err != nil {
-		log.Fatalf("couldn't create client: %v", err)
-	}
-	client.DeviceID = id.DeviceID(deviceID)
-	client.Store = store
-
-	return client
 }
