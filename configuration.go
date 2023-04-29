@@ -16,6 +16,8 @@ type Configuration struct {
 	Username     id.UserID `yaml:"username"`
 	PasswordFile string    `yaml:"password_file"`
 
+	AutoJoin bool `yaml:"auto_join"`
+
 	// Database settings
 	Database dbutil.Config `yaml:"database"`
 

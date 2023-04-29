@@ -79,6 +79,19 @@ func main() {
 	client.Crypto = cryptoHelper
 
 	syncer := client.Syncer.(*mautrix.DefaultSyncer)
+	if config.AutoJoin {
+		syncer.OnEventType(event.StateMember, func(_ mautrix.EventSource, evt *event.Event) {
+			if evt.StateKey == nil || *evt.StateKey != config.Username.String() {
+				return
+			}
+			if evt.Content.AsMember().Membership == event.MembershipInvite {
+				_, err := client.JoinRoom(evt.RoomID.String(), "", nil)
+				if err != nil {
+					log.Error().Err(err).Str("room_id", evt.RoomID.String()).Msg("Failed to join room")
+				}
+			}
+		})
+	}
 	syncer.OnEventType(event.EventMessage, func(_ mautrix.EventSource, evt *event.Event) {
 		retContent := getMsgResponse(log, client, evt)
 		if retContent == nil {
