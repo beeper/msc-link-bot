@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -12,14 +13,13 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	"gopkg.in/yaml.v3"
-
 	"github.com/rs/zerolog"
 	globallog "github.com/rs/zerolog/log"
+	"go.mau.fi/util/dbutil"
+	"gopkg.in/yaml.v3"
 	"maunium.net/go/mautrix"
 	"maunium.net/go/mautrix/crypto/cryptohelper"
 	"maunium.net/go/mautrix/event"
-	"maunium.net/go/mautrix/util/dbutil"
 )
 
 var MSC_REGEX *regexp.Regexp = regexp.MustCompile("\\b(?:MSC|msc)(\\d+)\\b")
@@ -85,7 +85,7 @@ func main() {
 				return
 			}
 			if evt.Content.AsMember().Membership == event.MembershipInvite {
-				_, err := client.JoinRoom(evt.RoomID.String(), "", nil)
+				_, err := client.JoinRoom(context.Background(), evt.RoomID.String(), "", nil)
 				if err != nil {
 					log.Error().Err(err).Str("room_id", evt.RoomID.String()).Msg("Failed to join room")
 				}
@@ -97,7 +97,7 @@ func main() {
 		if retContent == nil {
 			return
 		}
-		resp, err := client.SendMessageEvent(evt.RoomID, event.EventMessage, retContent)
+		resp, err := client.SendMessageEvent(context.Background(), evt.RoomID, event.EventMessage, retContent)
 		if err != nil {
 			log.Err(err).Msg("couldn't send event")
 			return
@@ -173,7 +173,7 @@ func getMSCResponse(log *zerolog.Logger, msc uint) string {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		log := log.With().Uint("msc", msc).Int("status_code", resp.StatusCode).Logger()
-		byts, err := ioutil.ReadAll(resp.Body)
+		byts, err := io.ReadAll(resp.Body)
 		if err == nil {
 			log = log.With().Str("body", string(byts)).Logger()
 		}
