@@ -60,6 +60,8 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to create matrix client")
 	}
 	client.Log = *log
+	ctx := log.WithContext(context.TODO())
+
 	cryptoHelper, err := cryptohelper.NewCryptoHelper(client, []byte("xyz.hnitbjorg.msc_link_bot"), db)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create crypto helper")
@@ -75,7 +77,7 @@ func main() {
 	}
 	cryptoHelper.DBAccountID = config.Username.String()
 
-	err = cryptoHelper.Init(context.TODO())
+	err = cryptoHelper.Init(ctx)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to initialize crypto helper")
 	}
