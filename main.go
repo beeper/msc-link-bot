@@ -75,7 +75,7 @@ func main() {
 	}
 	cryptoHelper.DBAccountID = config.Username.String()
 
-	err = cryptoHelper.Init()
+	err = cryptoHelper.Init(context.TODO())
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to initialize crypto helper")
 	}
@@ -84,24 +84,24 @@ func main() {
 	syncer := client.Syncer.(mautrix.ExtensibleSyncer)
 	syncer.OnSync(client.DontProcessOldEvents)
 	if config.AutoJoin {
-		syncer.OnEventType(event.StateMember, func(_ mautrix.EventSource, evt *event.Event) {
+		syncer.OnEventType(event.StateMember, func(ctx context.Context, evt *event.Event) {
 			if evt.StateKey == nil || *evt.StateKey != config.Username.String() {
 				return
 			}
 			if evt.Content.AsMember().Membership == event.MembershipInvite {
-				_, err := client.JoinRoom(context.Background(), evt.RoomID.String(), "", nil)
+				_, err := client.JoinRoom(ctx, evt.RoomID.String(), "", nil)
 				if err != nil {
 					log.Error().Err(err).Str("room_id", evt.RoomID.String()).Msg("Failed to join room")
 				}
 			}
 		})
 	}
-	syncer.OnEventType(event.EventMessage, func(_ mautrix.EventSource, evt *event.Event) {
+	syncer.OnEventType(event.EventMessage, func(ctx context.Context, evt *event.Event) {
 		retContent := getMsgResponse(log, evt)
 		if retContent == nil {
 			return
 		}
-		resp, err := client.SendMessageEvent(context.Background(), evt.RoomID, event.EventMessage, retContent)
+		resp, err := client.SendMessageEvent(ctx, evt.RoomID, event.EventMessage, retContent)
 		if err != nil {
 			log.Err(err).Msg("couldn't send event")
 			return
